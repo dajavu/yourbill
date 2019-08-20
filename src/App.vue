@@ -1,6 +1,8 @@
 <template>
   <div id="app" class="app-inner">
+    <!-- 原始数据 -->
     <div class="excel-list">
+      <div>总额：{{allPrice}}</div>
       <div class="excel-item excel-title">
         <span class="date">交易日期</span>
         <span class="pay">收/支</span>
@@ -18,20 +20,36 @@
     </div>
 
     <div class="count-totle">
-      <!-- 是否自定义选择 -->
+      <div class="history-list">
+        <span v-for="(item,index) in historyList" :key="index" @click="chooseHistory(item)">{{item.name}}</span>
+      </div>
+      <div>
+        <button @click="saveHistory()">保存当前数据</button>
+        <button @click="addHistory()">新建</button>
+      </div>
+      <!-- 开关 -->
       <button class="custom-but" @click="closeSelect()">{{!isCustom ? '开启' : '关闭'}}自定义选择</button>
       <button class="custom-but" v-if="isCustom" @click="confirmCustom()">确定</button>
       <button class="custom-but" @click="clearStorage()">清除缓存</button>
       <button class="custom-but" @click="deleteSamePrice()">删除相同的收入</button>
-      
+      <button class="custom-but" @click="addSamePrice()">新增</button>
       <div class="price-list">
         <div class="price-item same-bill">
           <span class="cell">角色</span>
           <span class="cell">金额（元）</span>
         </div>
+
+        <!-- 自动解析后表格 -->
         <div class="price-item same-bill" v-for="(item,index) in sameBillList" :key="index">
-          <span class="cell" :class="{'row-active':isCustom,'row-choose': item.isChoose,'row-tempChoose': item.isTempChoose}" @click="isCustom && chooseCustomItem(item)">{{item.name}}</span>
-          <span class="cell">{{item.price}}</span>
+          <span class="cell" 
+            :class="{'row-active':isCustom,'row-choose': item.isChoose,'row-tempChoose': item.isTempChoose}" 
+            @click="isCustom && chooseCustomItem(item)">
+            <input v-if="item.isEdit" type="text" v-model="item.name">
+            <span v-else>{{item.name}}</span>
+          </span>
+          <span class="cell">
+            <input type="text" v-model="item.price">
+          </span>
         </div>
         <div class="price-item same-bill">
           <span class="cell">总额</span>
@@ -39,7 +57,7 @@
         </div>
       </div>
 
-      <!-- 价格列表 -->
+      <!-- 选择后列表 -->
       <div class="price-list">
         <div class="price-item">
           <span class="cell">角色</span>
@@ -47,7 +65,7 @@
         </div>
         <div class="price-item" v-for="(item,index) in priceList" :key="index">
           <span class="cell">{{item.name}}</span>
-          <span class="cell">{{item.value}}</span>
+          <span class="cell">{{item.price}}</span>
           <span class="delete" @click="deleteCustomItem(index)">删除</span>
         </div>
         <div class="price-item" >
@@ -56,6 +74,7 @@
         </div>
       </div>
 
+      <!-- 图形显示 -->
       <select v-model="chartType">
         <option value="histogram">柱形图</option>
         <option value="pie">饼状图</option>
@@ -89,6 +108,8 @@ export default {
       isCustom: false, //是否开启自定义选择
       sameBillList: [], //相同类型的账单list
       tempSelectItem: [], //临时选择对象
+      historyList: [], //储存历史记录
+      historyId: "", //当前展示的历史ID
 
 
       chartType: 'pie', //默认饼状图
@@ -101,10 +122,21 @@ export default {
   },
   computed:{
     //获取自定义的总价格
+    allPrice(){
+      let countPrice = 0;
+      this.excelData.map(item=>{
+        if(item.type.indexOf('支出') != -1){
+          countPrice += parseInt(item.price);
+        }
+      })
+      return countPrice;
+    }, 
+
+    //获取自定义的总价格
     allCustomPrice(){
       let countPrice = 0;
       this.priceList.map(item=>{
-        countPrice += item.value;
+        countPrice += parseInt(item.price);
       })
       return countPrice;
     }, 
@@ -113,12 +145,58 @@ export default {
     allSamePrice(){
       let countPrice = 0;
       this.sameBillList.map(item=>{
-        countPrice += item.price;
+        countPrice += parseInt(item.price);
       })
       return countPrice;
     },
   },
   methods: {
+    //清除数据
+    clearData(){
+      this.historyId = "";
+      this.excelData = [];
+      this.sameBillList = [];
+      this.priceList = [];
+      this.tempSelectItem = [];
+      this.chartType = 'pie';
+      this.setCache('priceList',null)
+      this.setCache('sameBillList',null)
+      this.setCache('zhifubao',null)
+      this.setCache('weixin',null)
+    },
+
+    //新建一条历史数据
+    addHistory(){
+      this.clearData();
+      this.init();
+    },
+
+    //选择一个历史数据
+    chooseHistory(item){
+      this.clearData();
+      this.historyId = item.id;
+      this.init();
+    },
+
+    //保存一条历史数据
+    saveHistory(){
+      this.$prompt('请输入保存的名字', '提示').then(({ value }) => {
+        let id = this.createId()
+        this.historyList.push({
+          id: id,
+          name: value,
+        })
+        this.historyId = id;
+        //根据ID储存数据
+        this.saveStorage()
+        localStorage.setItem('historyList',JSON.stringify(this.historyList));
+      })
+    },
+
+    createId(){
+      return (new Date()).getTime();
+    },
+
     //关闭选择
     closeSelect(){
       this.isCustom = !this.isCustom;
@@ -132,26 +210,47 @@ export default {
     //保存
     saveStorage(){
       //保留缓存
-      localStorage.setItem('priceList',JSON.stringify(this.priceList));
-      localStorage.setItem('sameBillList',JSON.stringify(this.sameBillList));
-      localStorage.setItem('zhifubao',JSON.stringify(this.excelData));
+      this.setCache('priceList',JSON.stringify(this.priceList));
+      this.setCache('sameBillList',JSON.stringify(this.sameBillList));
+      this.setCache('zhifubao',JSON.stringify(this.excelData));
     },
 
     //删除一个自定义元素
     deleteCustomItem(index){
+      //清楚标记数据
+      this.priceList[index].mapList.map(item=>{
+        this.sameBillList.map(sameBill=>{
+          if(item.id == sameBill.id){
+            this.$set(sameBill,'isChoose',false)
+          }
+        })
+      })
+
+      //删除对应节点
       this.priceList.splice(index,1);
+
       this.saveStorage();
     },
+
     //清除缓存
     clearStorage(){
-      localStorage.clear();
+      // localStorage.clear();
     },
     
     //选择
     chooseCustomItem(item) {
       //标注为临时选择
-      this.$set(item,'isTempChoose',true);
-      this.tempSelectItem.push(item);
+      this.$set(item,'isTempChoose',!item.isTempChoose);
+      if(item.isTempChoose){
+        this.tempSelectItem.push(item);
+      }else{
+        for(let i in this.tempSelectItem){
+          if(this.tempSelectItem[i].id == item.id){
+            this.tempSelectItem.splice(i,1);
+            break;
+          }
+        }
+      }
     },
 
     //确认选择
@@ -159,11 +258,9 @@ export default {
       this.$prompt('请输入', '提示').then(({ value }) => {
         this.priceList.push({
           name: value,
-          value: this.getTypePrice()
+          price: this.getTypePrice(),
+          mapList: this.tempSelectItem,
         })
-
-        //设置饼状图
-        this.setChart();
 
         //临时选择变为缓存标记
         this.sameBillList.map(item=>{
@@ -172,11 +269,20 @@ export default {
           }
         })
 
+        //设置饼状图
+        this.setChart();
+
         //清除临时标记
         this.clearMark();
 
         //保留缓存
         this.saveStorage();
+
+        //关闭选择
+        this.isCustom = false;
+
+        //清空
+        this.tempSelectItem = [];
       })
     },
     
@@ -194,18 +300,19 @@ export default {
     getTypePrice(typeValue){
       let countPrice = 0;
       this.tempSelectItem.map(item=>{
-        countPrice += item.price;
+        countPrice += parseInt(item.price);
       })
       return countPrice;
     },
 
     //初始化数据
-    initDate(res){
+    initDate(res,sameBillList){
       for(let i = 0; i < res.length ; i++){
         let item = res[i];
         //英文代替中文
         for(let key in item){
           switch(true){
+            case /交易号|交易单号/.test(key): this.$set(item,'id',item[key]);break;
             case /金额/.test(key): this.$set(item,'price',parseInt(item[key]));break;
             case /商品/.test(key): this.$set(item,'desc',item[key]);break;
             case /收\/支/.test(key): this.$set(item,'type',item[key]);break;
@@ -216,12 +323,17 @@ export default {
         }
       }
 
-      let differentList = [];
+      this.setSameBillList(res,sameBillList);
 
-      if(!localStorage.getItem('sameBillList')){
+      this.excelData = this.excelData.concat(res);
+    },
+
+    setSameBillList(res,sameBillList){
+      if(sameBillList.length == 0){
+        let differentList = [];
         //获取过滤之后的数据
         res.map(item=>{
-          if(item.type.indexOf('支出') == -1 || item.price == 0){
+          if( (item.type.indexOf('支出') == -1) || item.price == 0){
             return;
           }
 
@@ -229,6 +341,7 @@ export default {
           if(differentList.indexOf(item.shop) == -1){
             differentList.push(item.shop);
             this.sameBillList.push({
+              id: item.id,
               name: item.shop,
               price: item.price,
             })
@@ -246,10 +359,8 @@ export default {
           return b.price - a.price;
         })
       }else{
-        this.sameBillList = JSON.parse(localStorage.getItem('sameBillList'))
+        this.sameBillList = sameBillList;
       }
-
-      this.excelData = this.excelData.concat(res);
     },
 
     //计算日期
@@ -263,6 +374,16 @@ export default {
       return `${value,date_1900.getFullYear()}年${date_1900.getMonth() + 1}月${date_1900.getDate()}`;
     },
 
+    //新增一条数据-解析之后的表格
+    addSamePrice(){
+      this.sameBillList.push({
+        id: this.createId(),
+        name: '',
+        price: 0,
+        isEdit: true,
+      })
+    },
+
     //如果同一个平台的支出和收入相等的话，删除收入和支出
     deleteSamePrice(){
       let tempData = JSON.parse(JSON.stringify(this.excelData))
@@ -270,16 +391,17 @@ export default {
         if(item.type.indexOf('收入') != -1){
           for(let i = 0,isDelete = false; i < this.excelData.length ; isDelete ? i :i++){
             let item1 = this.excelData[i];
-            if(item.price == item1.price && item.shop == item.shop1){
+            if(item.price == item1.price && item.shop == item1.shop){
               isDelete = true;
               this.excelData.splice(i,1)
             }else{
               isDelete = false;
             }
           }
-            
         }
       })
+      this.sameBillList = [];
+      this.setSameBillList(this.excelData,[]);
     },
 
     //设置饼状图
@@ -289,7 +411,7 @@ export default {
 
       this.priceList.map(item=>{
         tempRows.push({
-          '类型': item.name,'金额': item.value
+          '类型': item.name,'金额': item.price
         })
       })
       this.$set(this.chartData,'rows',tempRows)
@@ -306,17 +428,17 @@ export default {
         wb = XLSX.read(data, {
           type: "binary"
         });
-        
+
         //支付宝
         if(type == 'zhifubao'){
-          localStorage.setItem('zhifubao',JSON.stringify(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])))
+          this.setCache('zhifubao',XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]))
         }
         //微信
         else{
-          localStorage.setItem('weixin',JSON.stringify(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])))
+          this.setCache('weixin',XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]))
         }
 
-        this.initDate(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]));
+        this.initDate(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]),[]);
       }.bind(this);
       reader.readAsBinaryString(f);
     },
@@ -335,20 +457,43 @@ export default {
       return o;
     },
 
+    //获取缓存
+    getCache(name){
+      return JSON.parse(localStorage.getItem(name + this.historyId));
+    },
+
+    //保存缓存
+    setCache(name,value){
+      localStorage.setItem(name + this.historyId,JSON.stringify(value));
+    },
+
+    //删除对应缓存
+    removeCache(name){
+      localStorage.removeItem(name);
+    },
+
+    //初始化
+    init(){
+      let zhifubao = this.getCache('zhifubao') || [];
+      let weixin = this.getCache('weixin') || [];
+      let sameBillList = this.getCache('sameBillList') || [];
+
+      this.priceList = this.getCache('priceList') || [];
+
+      this.historyList = this.getCache('historyList') || [];
+
+      if(weixin.length > 0){
+        zhifubao = zhifubao.concat(weixin)
+      }
+
+      //初始化数据
+      this.initDate(zhifubao,sameBillList)
+
+      this.setChart();
+    }
   },
   mounted(){
-    if(localStorage.getItem('zhifubao')){
-      let weixin = JSON.parse(localStorage.getItem('weixin'))  
-      let testData = JSON.parse(localStorage.getItem('zhifubao'))  
-      testData = testData.concat(weixin)
-      this.initDate(testData)
-    }
-
-    if(localStorage.getItem('priceList')){
-      this.priceList = JSON.parse(localStorage.getItem('priceList'));
-    }
-
-    this.setChart();
+    this.init();
   }
 };
 </script>
@@ -394,6 +539,7 @@ export default {
     line-height: 15px;
     font-size: 16px;
     vertical-align: middle;
+    overflow: hidden;
   }
   .excel-item>span:last-child{
     border-right: 1px solid #8E8E8E;
@@ -458,6 +604,9 @@ export default {
   }
   .price-item>.cell:first-child{
     border-left: 1px solid #8E8E8E;
+  }
+  .price-item>.cell>input{
+    outline: none;
   }
   .price-item>.delete{
     cursor: pointer;
