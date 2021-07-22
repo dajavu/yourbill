@@ -13,7 +13,7 @@
     "element-ui": "^2.11.1",
     "v-charts": "^1.19.0",
     "vue": "^2.6.10",
-    "xlsx": "^0.14.4"
+    "xlsx": "^0.17.0"
   },
   "devDependencies": {
     "@vue/cli-plugin-babel": "^3.9.0",
